@@ -1,0 +1,133 @@
+#Detecting seasonality 
+library(TSA)
+library(forecast)
+setwd('C:/Users/ravindersin/Documents')
+ts_data = read.csv('ts_data.csv', header = TRUE)
+
+ts_data$Date = as.Date(as.character(ts_data$Date), format = '%m/%d/%Y')
+
+ts_data = ts_data[ts_data$Date > as.Date('2016-11-30', format = '%Y-%m-%d'),]
+
+
+ts_per = periodogram(ts_data$Volume)
+
+ts_per_df = data.frame(freq = ts_per$freq, spec = ts_per$spec)
+ts_per_df = ts_per_df[order(-ts_per_df$spec),]
+top_5_seasonality = head(ts_per_df, 5)
+
+#Converting frequency into time period 
+top_5_seasonality_time = 1 /top_5_seasonality$freq
+
+my_ts = ts(ts_data$Volume, frequency= 7)
+plot(my_ts)
+
+#Detecting trend 
+plot(as.ts(ma(my_ts, order = 7, centre = T)))
+
+#Declining trend first 30 weeks 
+plot(head(my_ts, 30))
+
+#Additive increasing trend - last 40 weeks 
+plot(tail(my_ts, 40))
+
+
+#Decomposing trend and seasonality 
+#Additive decomposition 
+decomposed_ts_ad = decompose(my_ts, 'additive')
+plot(decomposed_ts_ad)
+
+#Multiplicative decomposition 
+decomposed_ts_ml = decompose(my_ts, 'multiplicative')
+plot(decomposed_ts_ml)
+
+ts_data[NROW(ts_data),]
+ts_date = seq(as.Date('2016-12-01', format = '%Y-%m-%d'), as.Date('2017-11-27', format = '%Y-%m-%d'), by = '1 day')
+
+library(ggplot2)
+library(plotly)
+decomposed_graph(decomposed_ts_ad, title = 'Decomposition of Additive Time Series', date = ts_date)
+decomposed_graph(decomposed_ts_ml, title = 'Decomposition of Multiplicative Time Series', date = ts_date)
+
+
+
+decomposed_ts =  decomposed_ts_ml
+observed = as.vector(unlist(decomposed_ts['x']))
+trend = as.vector(unlist(decomposed_ts['trend']))
+seasonal = as.vector(unlist(decomposed_ts['seasonal']))
+random = as.vector(unlist(decomposed_ts['random']))
+my_df = data.frame(observed = observed, trend = trend, seasonal = seasonal, random = random, date = ts_date,
+                   day = weekdays(ts_date))
+
+
+
+#Performing navie forecast 
+
+forecast_length = 30 
+
+#Splitting data into training and testing 
+train_df = my_df[1:(NROW(my_df)- forecast_length),]
+test_df = my_df[(NROW(train_df)+1):NROW(my_df),]
+
+
+#creating vector for weekends 
+days_excluded = c('Saturday', 'Sunday')
+
+
+#data from testing data 
+
+
+#Splitting training data into weekdays and weekends 
+train_df_weekday = train_df[!train_df$day %in% days_excluded,]
+train_df_weekend = train_df[train_df$day %in% days_excluded,]
+
+
+#Splitting testing data into weekdays and weekends 
+test_df_weekday = test_df[!test_df$day %in% days_excluded, ]
+test_df_weekend = test_df[test_df$day %in% days_excluded, ]
+
+forecast_length_weekday = NROW(test_df_weekday)
+forecast_length_weekend = NROW(test_df_weekend)
+
+
+#forecasting for weekday
+naive_forecast_weekday = naive(train_df_weekday$observed, h = forecast_length_weekday)
+
+naive_forecast_weekday_df = data.frame(date = test_df_weekday$date, forecast = as.numeric(naive_forecast_weekday$mean))
+
+
+#forecasting for weekend 
+naive_forecast_weekend = naive(train_df_weekend$observed, h = forecast_length_weekend)
+
+naive_forecast_weekend_df = data.frame(date = as.character(test_df_weekend$date), forecast = as.numeric(naive_forecast_weekend$mean))
+
+naive_forecast=rbind(naive_forecast_weekday_df, naive_forecast_weekend_df)
+
+naive_forecast = naive_forecast[order(naive_forecast$date),]
+
+
+naive_forecast$actual = test_df$observed
+naive_forecast$unsplitted_naive = as.numeric(naive(train_df$observed, h = 30)$mean)
+
+
+
+sum((naive_forecast$actual - naive_forecast$forecast) / naive_forecast$actual) 
+
+
+
+library(reshape2)
+
+naive_forecast_melt =   melt(naive_forecast, id= c('date'))
+v = naive_forecast_melt$variable 
+lt = c('bold', 'dotted')
+
+p = ggplot(naive_forecast_melt) + geom_line(aes(x = date, y = value, color = variable)) + 
+  scale_color_manual(values = c('blue', 'black', 'dark green'))  + theme(legend.title=element_blank()) + xlab('Time') + ylab('Volume')                                                                                                  
+
+ggplotly(p)
+
+
+
+
+#p = ggplot(data = naive_forecast, aes(x = date, y = forecast)) + geom_line(color = 'blue', linetype = 'dashed') + 
+ # geom_line(data = naive_forecast, aes(x = date, y = actual), color = 'black') + 
+  #scale_color_manual(values = c('blue', 'black'))
