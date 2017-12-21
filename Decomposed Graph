@@ -1,0 +1,28 @@
+
+decomposed_graph <- function(decomposed_ts, date, angle = NULL, time_break = NULL, title = NULL){
+  
+                             if(is.null(angle)) angle = 90
+                             if(is.null(time_break)) time_break = '1 month'
+                             if(is.null(title)) title = 'Decomposed Time Series'
+                             observed = as.vector(unlist(decomposed_ts['x']))
+                             trend = as.vector(unlist(decomposed_ts['trend']))
+                             seasonal = as.vector(unlist(decomposed_ts['seasonal']))
+                             random = as.vector(unlist(decomposed_ts['random']))
+                             temp_df = data.frame(observed = observed, trend = trend, seasonal = seasonal, random = random, 
+                                                  Date = date)
+                             p1 = ggplot(data = temp_df, aes(x = Date, y = observed)) + geom_line(na.rm = TRUE, color = 'blue') +
+                               theme(axis.ticks = element_blank(), axis.text.x=element_blank()) + labs(title = title)
+                             
+                             p2 = ggplot(data = temp_df,aes(x = Date, y = trend)) + geom_line(na.rm = TRUE, color = 'blue') + 
+                               theme(axis.ticks = element_blank(), axis.text.x=element_blank())
+                             
+                             p3 = ggplot(data= temp_df, aes(x = Date, y = seasonal)) + geom_line(na.rm= TRUE, color = 'blue') + 
+                               theme(axis.ticks = element_blank(), axis.text.x=element_blank())
+                             
+                             p4 = ggplot(data= temp_df, aes(x = Date, y = random)) + geom_line(na.rm = TRUE, color = 'blue') +
+                                  scale_x_date(date_breaks = time_break, date_labels =  "%b %y") +
+                                  theme(axis.text.x=element_text(angle= angle, hjust=1)) 
+                             
+                             return(subplot(p1, p2, p3, p4, nrows = 4, titleY = TRUE))
+                             
+}
