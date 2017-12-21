@@ -1,0 +1,882 @@
+setwd("C:/Users/ravindersin/Documents/ASO")
+#install.packages('quantmod')
+library('quantmod')
+library('ggplot2')
+library('scales')
+
+my_data <- read.csv("indonesia.csv", stringsAsFactors = FALSE)
+my_data$Dates <- as.Date(my_data$Dates, format = "%m/%d/%Y")
+#Formatting data 
+
+my_data$Organic.Page.Views <- gsub(pattern = ",", replacement = "", x = my_data$Organic.Page.Views)
+my_data$Organic.Page.Views <- as.numeric(my_data$Organic.Page.Views)
+
+my_data$Organic.Downlaods <- gsub(pattern = ",", replacement = "", x = my_data$Organic.Downlaods)
+my_data$Organic.Downlaods <- as.numeric(my_data$Organic.Downlaods)
+
+#tt <-cbind.data.frame(data$Dates, data$Organic.Page.Views)
+my_dates <- my_data$Dates
+var_name <-my_data$Organic.Page.Views
+
+
+#Creating function 
+rts_plot <-function(data, dates,var_name, cutoff_value=.05, skip_days = 0, title = NULL, xlab = NULL, ylab = NULL){
+  #Phase 1 
+  data_copy <- data
+  data <- data.frame(dates, var_name)
+  
+  
+   for(i in 1:NROW(data)){
+   if(is.na(data[i,'dates'])==TRUE){break}
+   else{
+     
+     remove_dates <- rep(data[i,'dates'],skip_days)
+     skip_vector <- 1:skip_days
+     skip_vector <- skip_vector[skip_vector != 0]
+     remove <- remove_dates + skip_vector
+     data <- data[!data[,'dates'] %in% remove,]
+   }
+ }
+  
+ 
+  data$dates <- as.POSIXct(as.character(data$dates),format = "%Y-%m-%d")
+  
+  #####All values in dataframe are calculated based on first_date_reference. Although it doesn't appears in dataframe
+  first_date_reference <- data$dates[1]
+  data$Pc_var_name <- Delt(data$var_name)
+  
+  #Cal for Organic Page Views 
+  abs_mean_Pc_var_name <- mean(abs(data$Pc_var_name), na.rm = TRUE)
+  sd_Pc_var_name <- sd(data$Pc_var_name, na.rm = TRUE)
+  
+  cutoff_sd_Pc_var_name <-  cutoff_value * sd_Pc_var_name
+  
+  upper_bound_mean_Pc_var_name <- abs_mean_Pc_var_name + cutoff_sd_Pc_var_name 
+  lower_bound_mean_Pc_var_name <- abs_mean_Pc_var_name - cutoff_sd_Pc_var_name
+  
+  pv_df <- data[abs(data$Pc_var_name) > upper_bound_mean_Pc_var_name  & is.na(abs(data$Pc_var_name))==FALSE  ,]
+  pv_df <- pv_df[,c('dates','var_name','Pc_var_name')]
+  
+  pv_df$time_diff <- diff(c(first_date_reference,pv_df$dates))
+
+    ###############################################################
+  #Phase 2 
+  ########Merging dataframes so we can obrtained all the dates with difference values only in front of selected dates ###########################
+  temp <- merge(x = data, y = pv_df, by.x = 'dates', by.y = 'dates', all.x = TRUE)
+  temp <- temp[,c('dates','var_name.x','time_diff')]
+  
+  #View(temp)
+  ###########################################################################
+  #Phase 3
+  #######only selecting Dates with values and previous date for connecting the line to the previous point to see drop/hike ####################################################
+  selected_dates <- c()
+  for(i in 1:(NROW(temp)-1))
+  {
+    if(is.na(temp$time_diff[i])==TRUE & is.na(temp$time_diff[i+1])==FALSE |
+       is.na(temp$time_diff[i])==FALSE & is.na(temp$time_diff[i+1])==FALSE){
+      selected_dates <- append(selected_dates,c(temp$dates[i],temp$dates[i+1]))
+      selected_dates <- unique(selected_dates)
+      
+    }
+  }
+  
+  new_temp <- temp[temp$dates %in% selected_dates,]
+  real_time_diff <- diff(new_temp$date)
+  real_time_diff <- c(1,real_time_diff)
+  new_temp$real_time_diff <- real_time_diff
+  new_temp <- new_temp[,c('dates','var_name.x','real_time_diff')]
+  
+  ###########################################################
+  #Phase 4 - Grouping the continous dates into a dataframe and assign all into a single list of all dataframes 
+  #########################################################
+  
+  capture_i <- c()
+  my_df_list <- list()
+  select_real_time_diff <-skip_days +1
+
+   
+  for(i in 1:(NROW(new_temp)-1))
+  {
+    if(i %in% capture_i) next
+    time_dates <- c()
+    if(new_temp$real_time_diff[i]==select_real_time_diff){
+      n= i
+       while(all.equal(new_temp$real_time_diff[n],select_real_time_diff)==TRUE){
+        time_dates <-append(time_dates, c(new_temp$dates[n], new_temp$dates[n-1]))
+        capture_i <- append(capture_i, n)
+        capture_i <- unique(capture_i)
+        n = n+1
+        
+      }
+      my_df_list[[i]] <- new_temp[new_temp$dates %in% time_dates,]
+      my_df_list[[i]][,"real_time_diff"]<- NULL
+  
+      
+    }
+  }
+ 
+ 
+  #Removing NULL values 
+  my_df_list <- Filter(length,my_df_list)
+  for(i in 1:length(my_df_list)){
+    my_df_list[[i]] <- cbind(my_df_list[[i]], group = rep(i,NROW(my_df_list[[i]])))
+  }
+  my_df_list <- do.call(rbind, lapply(my_df_list, data.frame, stringsAsFactors=FALSE))
+  
+  
+  #Phase 5 Metling dataframe for graphics purpose #################
+  #####################################
+  library(reshape2)
+  c_temp <-melt(my_df_list, id.vars = c("dates","group"))
+  ############plotting 
+  
+  require(ggplot2)
+  theme_set(theme_bw()) # Change the theme to my preference
+  my_plot <-ggplot(aes(x = dates, y = var_name), data = data) +geom_point(size =1.5,colour = '#1565C0') + geom_line(colour = "#1565C0", size = 1) + geom_point(data = pv_df, aes(x = dates
+                                                                                                                                                 ,y = var_name), colour = '#1565C0', size = 1.5) 
+  
+  
+  
+  return(my_plot + geom_line(data = c_temp, aes(x = dates, y = value, group = group), colour = "#2E7D32", size = 1)+xlab(xlab)+ggtitle(paste(title))+ylab(ylab) )
+}
+
+
+
+#####################Complete Second Graph ###############################################################
+
+################################Second Graph ########################################
+#Creating function 
+rts_change_complete_plot <-function(data, dates,var_name, cutoff_value=.05,skip_days=0,title = NULL, xlab = NULL, ylab = NULL){
+  #Phase 1 
+  data_copy <- data
+  data <- data.frame(dates, var_name)
+  
+  
+  for(i in 1:NROW(data)){
+    if(is.na(data[i,'dates'])==TRUE){break}
+    else{
+      
+      remove_dates <- rep(data[i,'dates'],skip_days)
+      skip_vector <- 1:skip_days
+      skip_vector <- skip_vector[skip_vector != 0]
+      remove <- remove_dates + skip_vector
+      data <- data[!data[,'dates'] %in% remove,]
+    }
+  }
+  
+  
+  data$dates <- as.POSIXct(as.character(data$dates),format = "%Y-%m-%d")
+  
+  #####All values in dataframe are calculated based on first_date_reference. Although it doesn't appears in dataframe
+  first_date_reference <- data$dates[1]
+  data$Pc_var_name <- Delt(data$var_name)
+  
+  #Cal for Organic Page Views 
+  abs_mean_Pc_var_name <- mean(abs(data$Pc_var_name), na.rm = TRUE)
+  sd_Pc_var_name <- sd(data$Pc_var_name, na.rm = TRUE)
+  
+  cutoff_sd_Pc_var_name <-  cutoff_value * sd_Pc_var_name
+  
+  upper_bound_mean_Pc_var_name <- abs_mean_Pc_var_name + cutoff_sd_Pc_var_name 
+  lower_bound_mean_Pc_var_name <- abs_mean_Pc_var_name - cutoff_sd_Pc_var_name
+  
+  pv_df<-data[is.na(abs(data$Pc_var_name))==FALSE  ,]
+
+  pv_df <- pv_df[,c('dates','var_name','Pc_var_name')]
+  pv_df$positive <- pv_df$Pc_var_name >= 0
+  
+  return(
+    ggplot(pv_df, aes( x = dates, y = Pc_var_name, fill = positive)) + geom_bar(stat = "identity", position = "identity") +
+      scale_y_continuous(labels=percent) +  xlab(xlab) + ggtitle(paste(title)) + ylab(ylab) +guides(fill = FALSE)
+  )
+}
+
+
+################################Second Graph ########################################
+#Creating function 
+rts_change_plot <-function(data, dates,var_name, cutoff_value=.05,skip_days=0,title = NULL, xlab = NULL, ylab = NULL){
+  #Phase 1 
+  data_copy <- data
+  data <- data.frame(dates, var_name)
+  
+  
+  for(i in 1:NROW(data)){
+    if(is.na(data[i,'dates'])==TRUE){break}
+    else{
+      
+      remove_dates <- rep(data[i,'dates'],skip_days)
+      skip_vector <- 1:skip_days
+      skip_vector <- skip_vector[skip_vector != 0]
+      remove <- remove_dates + skip_vector
+      data <- data[!data[,'dates'] %in% remove,]
+    }
+  }
+  
+  
+  data$dates <- as.POSIXct(as.character(data$dates),format = "%Y-%m-%d")
+  
+  #####All values in dataframe are calculated based on first_date_reference. Although it doesn't appears in dataframe
+  first_date_reference <- data$dates[1]
+  data$Pc_var_name <- Delt(data$var_name)
+  
+  #Cal for Organic Page Views 
+  abs_mean_Pc_var_name <- mean(abs(data$Pc_var_name), na.rm = TRUE)
+  sd_Pc_var_name <- sd(data$Pc_var_name, na.rm = TRUE)
+  
+  cutoff_sd_Pc_var_name <-  cutoff_value * sd_Pc_var_name
+  
+  upper_bound_mean_Pc_var_name <- abs_mean_Pc_var_name + cutoff_sd_Pc_var_name 
+  lower_bound_mean_Pc_var_name <- abs_mean_Pc_var_name - cutoff_sd_Pc_var_name
+  
+  pv_df <- data[abs(data$Pc_var_name) > upper_bound_mean_Pc_var_name  & is.na(abs(data$Pc_var_name))==FALSE  ,]
+  pv_df <- pv_df[,c('dates','var_name','Pc_var_name')]
+  
+  pv_df$time_diff <- diff(c(first_date_reference,pv_df$dates))
+  
+  ###############################################################
+  #Phase 2 
+  ########Merging dataframes so we can obrtained all the dates with difference values only in front of selected dates ###########################
+  temp <- merge(x = data, y = pv_df, by.x = 'dates', by.y = 'dates', all.x = TRUE)
+  temp <- temp[,c('dates','var_name.x','time_diff')]
+  
+  ###########################################################################
+  #Phase 3
+  #######only selecting Dates with values and previous date for connecting the line to the previous point to see drop/hike ####################################################
+  selected_dates <- c()
+  for(i in 1:(NROW(temp)-1))
+  {
+    if(is.na(temp$time_diff[i])==TRUE & is.na(temp$time_diff[i+1])==FALSE |
+       is.na(temp$time_diff[i])==FALSE & is.na(temp$time_diff[i+1])==FALSE){
+      selected_dates <- append(selected_dates,c(temp$dates[i],temp$dates[i+1]))
+      selected_dates <- unique(selected_dates)
+      
+    }
+  }
+  
+  new_temp <- temp[temp$dates %in% selected_dates,]
+  real_time_diff <- diff(new_temp$date)
+  real_time_diff <- c(1,real_time_diff)
+  new_temp$real_time_diff <- real_time_diff
+  new_temp <- new_temp[,c('dates','var_name.x','real_time_diff')]
+  
+  ###########################################################
+  #Phase 4 - Grouping the continous dates into a dataframe and assign all into a single list of all dataframes 
+  #########################################################
+  
+  capture_i <- c()
+  my_df_list <- list()
+  select_real_time_diff <-skip_days +1
+
+  
+  for(i in 1:(NROW(new_temp)-1))
+  {
+    if(i %in% capture_i) next
+    time_dates <- c()
+    if(new_temp$real_time_diff[i]==select_real_time_diff){
+      n= i
+      while(all.equal(new_temp$real_time_diff[n],select_real_time_diff)==TRUE){
+        time_dates <-append(time_dates, c(new_temp$dates[n], new_temp$dates[n-1]))
+        capture_i <- append(capture_i, n)
+        capture_i <- unique(capture_i)
+        n = n+1
+        
+      }
+      my_df_list[[i]] <- new_temp[new_temp$dates %in% time_dates,]
+      my_df_list[[i]][,"real_time_diff"]<- NULL
+      
+      
+    }
+  }
+  #Removing NULL values 
+  my_df_list <- Filter(length,my_df_list)
+  
+  
+  ##########################################################Calculation for Second Graph##############################
+  my_df_list_copy <- my_df_list
+  
+  #####Adding Group #############################################
+  for(i in 1:length(my_df_list_copy)){
+    my_df_list_copy[[i]]$group <- i
+  }
+  
+  var_name_percent_change <-do.call(rbind,lapply(my_df_list_copy, function(x)  Delt(x[,2])))
+  dates_pc <- do.call(rbind,lapply(my_df_list_copy, function(x) x = data.frame(nn = x[,1])))
+  dv <- data.frame(dates_pc, var_name_percent_change)
+  names(dv) <- c('dates', 'var_name_percent_change')
+  dv$var_name_percent_change[is.na(dv$var_name_percent_change )] =0
+  dv$positive <- dv$var_name_percent_change>= 0
+  ###########################################################Plotting Second Graph ###################################
+  return(
+    ggplot(dv, aes( x = dates, y = var_name_percent_change, fill = positive)) + geom_bar(stat = "identity", position = "identity") +
+     scale_y_continuous(labels=percent) + xlab(xlab) + ggtitle(paste(title)) + ylab(ylab) +guides(fill = FALSE)
+  )
+  
+}
+
+#############################Combine Two plots ####################################
+################################Multiplot function ###################################################
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+
+
+p1 <- rts_plot(data = my_data, date = my_data$Dates, var_name = my_data$Organic.Page.Views,skip_days = 0)
+p2 <- rts_change_plot(data = my_data, date = my_data$Dates, var_name = my_data$Organic.Page.Views, skip_days = 0)
+
+multiplot(p1, p2, cols=1)
+
+##################################################################################Extracting Cal for Second graph ################
+#Creating function 
+rts_extract_schange_data <-function(data, dates,var_name, cutoff_value=.05,skip_days=0){
+  #Phase 1 
+  data <- data.frame(dates, var_name)
+  
+  data_copy <- data
+  
+  for(i in 1:NROW(data)){
+    if(is.na(data[i,'dates'])==TRUE){break}
+    else{
+      
+      remove_dates <- rep(data[i,'dates'],skip_days)
+      skip_vector <- 1:skip_days
+      skip_vector <- skip_vector[skip_vector != 0]
+      remove <- remove_dates + skip_vector
+      data <- data[!data[,'dates'] %in% remove,]
+    }
+  }
+  
+  
+  data$dates <- as.POSIXct(as.character(data$dates),format = "%Y-%m-%d")
+  
+  #####All values in dataframe are calculated based on first_date_reference. Although it doesn't appears in dataframe
+  first_date_reference <- data$dates[1]
+  data$Pc_var_name <- Delt(data$var_name)
+  
+  #Cal for Organic Page Views 
+  abs_mean_Pc_var_name <- mean(abs(data$Pc_var_name), na.rm = TRUE)
+  sd_Pc_var_name <- sd(data$Pc_var_name, na.rm = TRUE)
+  
+  cutoff_sd_Pc_var_name <-  cutoff_value * sd_Pc_var_name
+  
+  upper_bound_mean_Pc_var_name <- abs_mean_Pc_var_name + cutoff_sd_Pc_var_name 
+  lower_bound_mean_Pc_var_name <- abs_mean_Pc_var_name - cutoff_sd_Pc_var_name
+  
+  pv_df <- data[abs(data$Pc_var_name) > upper_bound_mean_Pc_var_name  & is.na(abs(data$Pc_var_name))==FALSE  ,]
+  pv_df <- pv_df[,c('dates','var_name','Pc_var_name')]
+  
+  pv_df$time_diff <- diff(c(first_date_reference,pv_df$dates))
+  #View(pv_df)
+  ###############################################################
+  #Phase 2 
+  ########Merging dataframes so we can obrtained all the dates with difference values only in front of selected dates ###########################
+  temp <- merge(x = data, y = pv_df, by.x = 'dates', by.y = 'dates', all.x = TRUE)
+  temp <- temp[,c('dates','var_name.x','time_diff')]
+  
+  #View(temp)
+  ###########################################################################
+  #Phase 3
+  #######only selecting Dates with values and previous date for connecting the line to the previous point to see drop/hike ####################################################
+  selected_dates <- c()
+  for(i in 1:(NROW(temp)-1))
+  {
+    if(is.na(temp$time_diff[i])==TRUE & is.na(temp$time_diff[i+1])==FALSE |
+       is.na(temp$time_diff[i])==FALSE & is.na(temp$time_diff[i+1])==FALSE){
+      selected_dates <- append(selected_dates,c(temp$dates[i],temp$dates[i+1]))
+      selected_dates <- unique(selected_dates)
+      
+    }
+  }
+  
+  new_temp <- temp[temp$dates %in% selected_dates,]
+  real_time_diff <- diff(new_temp$date)
+  real_time_diff <- c(1,real_time_diff)
+  new_temp$real_time_diff <- real_time_diff
+  new_temp <- new_temp[,c('dates','var_name.x','real_time_diff')]
+  
+  #View(new_temp)
+  ###########################################################
+  #Phase 4 - Grouping the continous dates into a dataframe and assign all into a single list of all dataframes 
+  #########################################################
+  
+  capture_i <- c()
+  my_df_list <- list()
+  select_real_time_diff <-skip_days +1
+  
+  
+  for(i in 1:(NROW(new_temp)-1))
+  {
+    if(i %in% capture_i) next
+    time_dates <- c()
+    if(new_temp$real_time_diff[i]==select_real_time_diff){
+      n= i
+      while(all.equal(new_temp$real_time_diff[n],select_real_time_diff)==TRUE){
+        time_dates <-append(time_dates, c(new_temp$dates[n], new_temp$dates[n-1]))
+        capture_i <- append(capture_i, n)
+        capture_i <- unique(capture_i)
+        n = n+1
+        
+      }
+      my_df_list[[i]] <- new_temp[new_temp$dates %in% time_dates,]
+      my_df_list[[i]][,"real_time_diff"]<- NULL
+      
+    }
+  }
+  #Removing NULL values 
+  my_df_list <- Filter(length,my_df_list)
+  
+  
+  ##########################################################Calculation for Second Graph##############################
+  my_df_list_copy <- my_df_list
+  
+  #####Adding Group #############################################
+  df_my_df_list <- do.call(rbind, lapply(my_df_list, data.frame, stringsAsFactors=FALSE))
+  names(df_my_df_list) <- c('time','var_name_value')
+  df_my_df_list$var_name_percent_change <- Delt(df_my_df_list$var_name)
+  df_my_df_list$var_name_value <- NULL
+  names(df_my_df_list) <- c('time', 'var_name_percent_change')
+  df_my_df_list <-data.frame(start_date = df_my_df_list$time[1:(NROW(df_my_df_list)-1)],end_date = df_my_df_list$time[2:NROW(df_my_df_list)], var_name_percent_change = df_my_df_list$var_name_percent_change[2:NROW(  df_my_df_list)])
+  df_my_df_list$diff_time <-as.numeric(difftime(df_my_df_list$end_date, df_my_df_list$start_date))
+  
+  df_my_df_list <- df_my_df_list[df_my_df_list$diff_time==select_real_time_diff,]
+  df_my_df_list$diff_time <- NULL
+  ###########################################################Plotting Second Graph ###################################
+  return(df_my_df_list)
+  
+}
+
+
+
+
+
+
+###############################################################3#Creating function 
+rts_extract_schange_linked_data <-function(data, dates,var_name, cutoff_value=.05,skip_days=0){
+  #Phase 1 
+  data <- data.frame(dates, var_name)
+  
+  data_copy <- data
+  
+  for(i in 1:NROW(data)){
+    if(is.na(data[i,'dates'])==TRUE){break}
+    else{
+      
+      remove_dates <- rep(data[i,'dates'],skip_days)
+      skip_vector <- 1:skip_days
+      skip_vector <- skip_vector[skip_vector != 0]
+      remove <- remove_dates + skip_vector
+      data <- data[!data[,'dates'] %in% remove,]
+    }
+  }
+  
+  
+  data$dates <- as.POSIXct(as.character(data$dates),format = "%Y-%m-%d")
+  
+  #####All values in dataframe are calculated based on first_date_reference. Although it doesn't appears in dataframe
+  first_date_reference <- data$dates[1]
+  data$Pc_var_name <- Delt(data$var_name)
+  
+  #Cal for Organic Page Views 
+  abs_mean_Pc_var_name <- mean(abs(data$Pc_var_name), na.rm = TRUE)
+  sd_Pc_var_name <- sd(data$Pc_var_name, na.rm = TRUE)
+  
+  cutoff_sd_Pc_var_name <-  cutoff_value * sd_Pc_var_name
+  
+  upper_bound_mean_Pc_var_name <- abs_mean_Pc_var_name + cutoff_sd_Pc_var_name 
+  lower_bound_mean_Pc_var_name <- abs_mean_Pc_var_name - cutoff_sd_Pc_var_name
+  
+  pv_df <- data[abs(data$Pc_var_name) > upper_bound_mean_Pc_var_name  & is.na(abs(data$Pc_var_name))==FALSE  ,]
+  pv_df <- pv_df[,c('dates','var_name','Pc_var_name')]
+  
+  pv_df$time_diff <- diff(c(first_date_reference,pv_df$dates))
+  #View(pv_df)
+  ###############################################################
+  #Phase 2 
+  ########Merging dataframes so we can obrtained all the dates with difference values only in front of selected dates ###########################
+  temp <- merge(x = data, y = pv_df, by.x = 'dates', by.y = 'dates', all.x = TRUE)
+  temp <- temp[,c('dates','var_name.x','time_diff')]
+  
+  #View(temp)
+  ###########################################################################
+  #Phase 3
+  #######only selecting Dates with values and previous date for connecting the line to the previous point to see drop/hike ####################################################
+  selected_dates <- c()
+  for(i in 1:(NROW(temp)-1))
+  {
+    if(is.na(temp$time_diff[i])==TRUE & is.na(temp$time_diff[i+1])==FALSE |
+       is.na(temp$time_diff[i])==FALSE & is.na(temp$time_diff[i+1])==FALSE){
+      selected_dates <- append(selected_dates,c(temp$dates[i],temp$dates[i+1]))
+      selected_dates <- unique(selected_dates)
+      
+    }
+  }
+  
+  new_temp <- temp[temp$dates %in% selected_dates,]
+  real_time_diff <- diff(new_temp$date)
+  real_time_diff <- c(1,real_time_diff)
+  new_temp$real_time_diff <- real_time_diff
+  new_temp <- new_temp[,c('dates','var_name.x','real_time_diff')]
+  
+  #View(new_temp)
+  ###########################################################
+  #Phase 4 - Grouping the continous dates into a dataframe and assign all into a single list of all dataframes 
+  #########################################################
+  
+  capture_i <- c()
+  my_df_list <- list()
+  select_real_time_diff <-skip_days +1
+  
+  
+  for(i in 1:(NROW(new_temp)-1))
+  {
+    if(i %in% capture_i) next
+    time_dates <- c()
+    if(new_temp$real_time_diff[i]==select_real_time_diff){
+      n= i
+      while(all.equal(new_temp$real_time_diff[n],select_real_time_diff)==TRUE){
+        time_dates <-append(time_dates, c(new_temp$dates[n], new_temp$dates[n-1]))
+        capture_i <- append(capture_i, n)
+        capture_i <- unique(capture_i)
+        n = n+1
+        
+      }
+      my_df_list[[i]] <- new_temp[new_temp$dates %in% time_dates,]
+      my_df_list[[i]][,"real_time_diff"]<- NULL
+      
+    }
+  }
+  #Removing NULL values 
+  my_df_list <- Filter(length,my_df_list)
+  
+  
+  ##########################################################Calculation for Second Graph##############################
+  my_df_list_copy <- my_df_list
+  
+  #####Adding Group #############################################
+  df_my_df_list <- do.call(rbind, lapply(my_df_list, data.frame, stringsAsFactors=FALSE))
+  names(df_my_df_list) <- c('time','var_name_value')
+  df_my_df_list$var_name_percent_change <- Delt(df_my_df_list$var_name)
+  df_my_df_list$var_name_value <- NULL
+  names(df_my_df_list) <- c('time', 'var_name_percent_change')
+  df_my_df_list <-data.frame(start_date = df_my_df_list$time[1:(NROW(df_my_df_list)-1)],end_date = df_my_df_list$time[2:NROW(df_my_df_list)], var_name_percent_change = df_my_df_list$var_name_percent_change[2:NROW(  df_my_df_list)])
+
+  
+  
+  ###########################################################Plotting Second Graph ###################################
+  return(df_my_df_list)
+   
+}
+
+
+###########################################Significant Compounded Change ########################################
+
+#Creating function 
+rts_extract_sc_change_data <-function(data, dates,var_name, cutoff_value=.05,skip_days=0){
+  #Phase 1 
+  data <- data.frame(dates, var_name)
+  
+  data_copy <- data
+  
+  for(i in 1:NROW(data)){
+    if(is.na(data[i,'dates'])==TRUE){break}
+    else{
+      
+      remove_dates <- rep(data[i,'dates'],skip_days)
+      skip_vector <- 1:skip_days
+      skip_vector <- skip_vector[skip_vector != 0]
+      remove <- remove_dates + skip_vector
+      data <- data[!data[,'dates'] %in% remove,]
+    }
+  }
+  
+  
+  data$dates <- as.POSIXct(as.character(data$dates),format = "%Y-%m-%d")
+  
+  #####All values in dataframe are calculated based on first_date_reference. Although it doesn't appears in dataframe
+  first_date_reference <- data$dates[1]
+  data$Pc_var_name <- Delt(data$var_name)
+  
+  #Cal for Organic Page Views 
+  abs_mean_Pc_var_name <- mean(abs(data$Pc_var_name), na.rm = TRUE)
+  sd_Pc_var_name <- sd(data$Pc_var_name, na.rm = TRUE)
+  
+  cutoff_sd_Pc_var_name <-  cutoff_value * sd_Pc_var_name
+  
+  upper_bound_mean_Pc_var_name <- abs_mean_Pc_var_name + cutoff_sd_Pc_var_name 
+  lower_bound_mean_Pc_var_name <- abs_mean_Pc_var_name - cutoff_sd_Pc_var_name
+  
+  pv_df <- data[abs(data$Pc_var_name) > upper_bound_mean_Pc_var_name  & is.na(abs(data$Pc_var_name))==FALSE  ,]
+  pv_df <- pv_df[,c('dates','var_name','Pc_var_name')]
+  
+  pv_df$time_diff <- diff(c(first_date_reference,pv_df$dates))
+  #View(pv_df)
+  ###############################################################
+  #Phase 2 
+  ########Merging dataframes so we can obrtained all the dates with difference values only in front of selected dates ###########################
+  temp <- merge(x = data, y = pv_df, by.x = 'dates', by.y = 'dates', all.x = TRUE)
+  temp <- temp[,c('dates','var_name.x','time_diff')]
+  
+  #View(temp)
+  ###########################################################################
+  #Phase 3
+  #######only selecting Dates with values and previous date for connecting the line to the previous point to see drop/hike ####################################################
+  selected_dates <- c()
+  for(i in 1:(NROW(temp)-1))
+  {
+    if(is.na(temp$time_diff[i])==TRUE & is.na(temp$time_diff[i+1])==FALSE |
+       is.na(temp$time_diff[i])==FALSE & is.na(temp$time_diff[i+1])==FALSE){
+      selected_dates <- append(selected_dates,c(temp$dates[i],temp$dates[i+1]))
+      selected_dates <- unique(selected_dates)
+      
+    }
+  }
+  
+  new_temp <- temp[temp$dates %in% selected_dates,]
+  real_time_diff <- diff(new_temp$date)
+  real_time_diff <- c(1,real_time_diff)
+  new_temp$real_time_diff <- real_time_diff
+  new_temp <- new_temp[,c('dates','var_name.x','real_time_diff')]
+  
+  #View(new_temp)
+  ###########################################################
+  #Phase 4 - Grouping the continous dates into a dataframe and assign all into a single list of all dataframes 
+  #########################################################
+  
+  capture_i <- c()
+  my_df_list <- list()
+  select_real_time_diff <-skip_days +1
+  
+  
+  for(i in 1:(NROW(new_temp)-1))
+  {
+    if(i %in% capture_i) next
+    time_dates <- c()
+    if(new_temp$real_time_diff[i]==select_real_time_diff){
+      n= i
+      while(all.equal(new_temp$real_time_diff[n],select_real_time_diff)==TRUE){
+        time_dates <-append(time_dates, c(new_temp$dates[n], new_temp$dates[n-1]))
+        capture_i <- append(capture_i, n)
+        capture_i <- unique(capture_i)
+        n = n+1
+        
+      }
+      my_df_list[[i]] <- new_temp[new_temp$dates %in% time_dates,]
+      my_df_list[[i]][,"real_time_diff"]<- NULL
+      
+    }
+  }
+  
+  #Removing NULL values 
+  my_df_list <- Filter(length,my_df_list)
+  
+  
+  
+  
+  
+  ##########################################################Calculation for Second Graph##############################
+  my_df_list_copy <- my_df_list
+  start_date <- as.Date(rep(NA, length(my_df_list)))
+  end_date <- as.Date(rep(NA, length(my_df_list)))
+  time_period <- rep(NA, length(my_df_list))
+  fraction_var_name.x <- rep(NA, length(my_df_list))
+  compound_change_over_time <- rep(NA, length(my_df_list))
+  
+  for(i in 1:length(my_df_list)){
+    start_date[i] <-as.Date(as.character(my_df_list[[i]]$dates[1]))
+    end_date[i] <- as.Date(as.character(my_df_list[[i]]$dates[NROW(my_df_list[[i]])]))
+    time_period[i] <- as.numeric(end_date[i] - start_date[i])
+    fraction_var_name.x[i] <- my_df_list[[i]]$var_name.x[NROW(my_df_list[[i]])] / my_df_list[[i]]$var_name.x[1]
+    compound_change_over_time[i] <- percent(((fraction_var_name.x[i]) ^(1 / time_period[i])) - 1 )
+  }
+  
+  c_change_df <- data.frame(start_date = start_date, end_date = end_date, compound_change_over_time = compound_change_over_time)
+  View(c_change_df)
+  return(c_change_df)
+  
+}
+
+
+
+
+######################################################### Insignificant Compound Change ##################
+#Creating function 
+rts_extract_ins_change_data <-function(data, dates,var_name, cutoff_value=.05, skip_days = 0){
+  #Phase 1 
+  data_copy <- data
+  data <- data.frame(dates, var_name)
+  
+  
+  for(i in 1:NROW(data)){
+    if(is.na(data[i,'dates'])==TRUE){break}
+    else{
+      
+      remove_dates <- rep(data[i,'dates'],skip_days)
+      skip_vector <- 1:skip_days
+      skip_vector <- skip_vector[skip_vector != 0]
+      remove <- remove_dates + skip_vector
+      data <- data[!data[,'dates'] %in% remove,]
+    }
+  }
+  
+    data$dates <- as.POSIXct(as.character(data$dates),format = "%Y-%m-%d")
+  
+  #####All values in dataframe are calculated based on first_date_reference. Although it doesn't appears in dataframe
+  first_date_reference <- data$dates[1]
+  data$Pc_var_name <- Delt(data$var_name)
+
+  #Cal for Organic Page Views 
+  abs_mean_Pc_var_name <- mean(abs(data$Pc_var_name), na.rm = TRUE)
+  sd_Pc_var_name <- sd(data$Pc_var_name, na.rm = TRUE)
+  
+  cutoff_sd_Pc_var_name <-  cutoff_value * sd_Pc_var_name
+  
+  upper_bound_mean_Pc_var_name <- abs_mean_Pc_var_name + cutoff_sd_Pc_var_name 
+  lower_bound_mean_Pc_var_name <- abs_mean_Pc_var_name - cutoff_sd_Pc_var_name
+  
+  ########################selecting insignificant Values (stationary series) with dates ############
+  pv_df <- data[abs(data$Pc_var_name) <  upper_bound_mean_Pc_var_name  & is.na(abs(data$Pc_var_name))==FALSE  ,]
+  pv_df <- pv_df[,c('dates','var_name','Pc_var_name')]
+  
+  pv_df$time_diff <- diff(c(first_date_reference,pv_df$dates))
+  #View(pv_df)
+  ###############################################################
+  #Phase 2 
+  ########Merging dataframes so we can obrtained all the dates with difference values only in front of selected dates ###########################
+  temp <- merge(x = data, y = pv_df, by.x = 'dates', by.y = 'dates', all.x = TRUE)
+  temp <- temp[,c('dates','var_name.x','time_diff')]
+  
+  #View(temp)
+  ###########################################################################
+  #Phase 3
+  #######only selecting Dates with values and previous date for connecting the line to the previous point to see drop/hike ####################################################
+  selected_dates <- c()
+  for(i in 1:(NROW(temp)-1))
+  {
+    if(is.na(temp$time_diff[i])==TRUE & is.na(temp$time_diff[i+1])==FALSE |
+       is.na(temp$time_diff[i])==FALSE & is.na(temp$time_diff[i+1])==FALSE){
+      selected_dates <- append(selected_dates,c(temp$dates[i],temp$dates[i+1]))
+      selected_dates <- unique(selected_dates)
+      
+    }
+  }
+  
+  new_temp <- temp[temp$dates %in% selected_dates,]
+  real_time_diff <- diff(new_temp$date)
+  real_time_diff <- c(1,real_time_diff)
+  new_temp$real_time_diff <- real_time_diff
+  new_temp <- new_temp[,c('dates','var_name.x','real_time_diff')]
+  
+  #View(new_temp)
+  ###########################################################
+  #Phase 4 - Grouping the continous dates into a dataframe and assign all into a single list of all dataframes 
+  #########################################################
+  
+  capture_i <- c()
+  my_df_list <- list()
+  select_real_time_diff <-skip_days +1
+  
+  
+  for(i in 1:(NROW(new_temp)-1))
+  {
+    if(i %in% capture_i) next
+    time_dates <- c()
+    if(new_temp$real_time_diff[i]==select_real_time_diff){
+      n= i
+      while(all.equal(new_temp$real_time_diff[n],select_real_time_diff)==TRUE){
+        time_dates <-append(time_dates, c(new_temp$dates[n], new_temp$dates[n-1]))
+        capture_i <- append(capture_i, n)
+        capture_i <- unique(capture_i)
+        n = n+1
+        
+      }
+      my_df_list[[i]] <- new_temp[new_temp$dates %in% time_dates,]
+      my_df_list[[i]][,"real_time_diff"]<- NULL
+      
+    }
+  }
+  
+  #Removing NULL values 
+  my_df_list <- Filter(length,my_df_list)
+  
+  
+  
+  
+  
+  ##########################################################Calculation for Second Graph##############################
+  my_df_list_copy <- my_df_list
+  start_date <- as.Date(rep(NA, length(my_df_list)))
+  end_date <- as.Date(rep(NA, length(my_df_list)))
+  time_period <- rep(NA, length(my_df_list))
+  fraction_var_name.x <- rep(NA, length(my_df_list))
+  compound_change_over_time <- rep(NA, length(my_df_list))
+  
+  for(i in 1:length(my_df_list)){
+    start_date[i] <-as.Date(as.character(my_df_list[[i]]$dates[1]))
+    end_date[i] <- as.Date(as.character(my_df_list[[i]]$dates[NROW(my_df_list[[i]])]))
+    time_period[i] <- as.numeric(end_date[i] - start_date[i])
+    fraction_var_name.x[i] <- my_df_list[[i]]$var_name.x[NROW(my_df_list[[i]])] / my_df_list[[i]]$var_name.x[1]
+    compound_change_over_time[i] <- percent(((fraction_var_name.x[i]) ^(1 / time_period[i])) - 1 )
+  }
+  
+  ins_change_df <- data.frame(start_date = start_date, end_date = end_date, compound_change_over_time = compound_change_over_time)
+
+  return(ins_change_df)
+  
+}
+
+rts_extract_ins_change_data(data = my_data, date = my_data$Dates, var_name = my_data$Organic.Page.Views, skip_days = 0)
+
+
+
+
+
+
+
+
+
+
+
+
+############################
+###########################################Extracting Data ########################
+data = my_data
+dates = my_dates
+var_name = data$Organic.Page.Views
+cutoff_value=.05
+k = 2
+skip_days = 0
+
+
+rts_ins_plot(data = my_data, date = my_data$Dates, var_name = my_data$Organic.Page.Views, skip_days = 0)
