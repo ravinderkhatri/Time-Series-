@@ -1,0 +1,24 @@
+plot_ts = function(ts, x_ticks = NULL, title = NULL, x_breaks = NULL, color = NULL,
+                   col.main = NULL, sub = NULL, col.sub = NULL, xlab = NULL, ylab = NULL, col.lab = NULL,
+                   cex.lab = NULL){
+  
+                   if(is.null(x_ticks))  x_ticks = 1:NROW(ts)
+                   if(is.null(x_breaks)) x_breaks = seq(min(Time), max(Time), by = round(NROW(Time)/10))
+                   if(is.null(color)) color = 'blue'
+                   if(is.null(col.main)) col.main = 'black'
+                   if(is.null(col.sub)) col.sub = 'black'
+                   if(is.null(col.lab)) col.lab = 'black'
+                   if(is.null(xlab)) xlab = 'Date'
+                   if(is.null(ylab)) ylab = 'Value'
+                   if(is.null(cex.lab)) cex.lab = .75
+                   
+                   ts_df = data.frame(value = as.numeric(ts), Time = x_ticks)
+                   p = ggplot(data = ts_df, aes(x = Time, y = value)) + geom_line(color = color) + 
+                       scale_x_continuous(breaks = x_breaks) + 
+                       title(main=title, col.main=col.main, 
+                       sub=sub, col.sub=col.sub, 
+                       xlab= xlab, ylab= ylab,
+                       col.lab= col.lab, cex.lab=cex.lab)
+                   return(ggplotly(p))
+}
+
