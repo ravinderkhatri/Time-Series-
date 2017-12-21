@@ -1,5 +1,5 @@
 
-decomposed_graph <- function(decomposed_ts, date, angle = NULL, time_break = NULL, title = NULL){
+plot_decomposed <- function(decomposed_ts, date, angle = NULL, time_break = NULL, title = NULL){
   
                              if(is.null(angle)) angle = 90
                              if(is.null(time_break)) time_break = '1 month'
