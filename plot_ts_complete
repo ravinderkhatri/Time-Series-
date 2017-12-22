@@ -1,0 +1,36 @@
+plot_ts_complete = function(train, test, date_train, date_test,x_lab = NULL, y_lab= NULL, ...)
+{
+ # require(ggplot2)
+ #  require(plotly)
+ # require(reshape2)
+  if(is.null(x_lab)) x_lab = 'Time'
+  if(is.null(y_lab)) y_lab = 'Value'
+  
+  plot_one_df = data.frame(time = c(date_train, date_test), value = c(train, test))
+  
+  plot_one = ggplot(data = plot_one_df, aes(x = time, y = value)) + geom_line()
+  
+  if(!length(list(...))==0){
+      t = list(...)
+      
+      #plot_two_df = do.call(cbind.data.frame, list(...)[sapply(list(...), is.numeric)])
+      plot_two_df = do.call(cbind.data.frame, t[sapply(t, is.numeric)])
+      
+      plot_two_df$time = date_test
+  
+      #Melting dataframe 
+      plot_two_melted_df = melt(plot_two_df, id = c('time'))
+      plot_two = plot_one + geom_line(data = plot_two_melted_df, 
+                           aes(x = time, y = value, color = variable, linetype = variable)) + 
+                 scale_color_manual(values = c('blue', 'black', 'dark green'))  + 
+                 theme(legend.title=element_blank()) +
+                 xlab(x_lab)+
+                 ylab(y_lab) 
+      
+      return(plot_two)
+   }
+  else
+   {
+    return(plot_one)
+     }
+}
