@@ -1,0 +1,200 @@
+library(TSA)
+library(ggplot2)
+library(plotly)
+library(forecast)
+library(scales)
+library(urca)
+library(dummies)
+
+setwd('C:/Users/ravindersin/Desktop/DNA-TS')
+gtech = read.csv('C:/Users/ravindersin/Desktop/DNA-TS/gtech.csv', stringsAsFactors = FALSE)
+gtech$Date = as.Date(gtech$Date, format = '%d-%B-%y')
+gtech$Day = weekdays(gtech$Date)
+
+
+train_df = gtech[gtech$Date <= as.Date('2017-10-31', format = '%Y-%m-%d'),]
+test_df = gtech[gtech$Date > as.Date('2017-10-31', format = '%Y-%m-%d'),]
+
+train_freq_seven = ts(train_df$Volume, start = c(2016-07-01), frequency = 7)
+test_freq_seven = ts(test_df$Volume, start = c(2017-11-01), frequency = 7)
+
+plot(decompose(train_freq_seven))
+
+#Augmented Dickey fuller test 
+adf.test(train_freq_seven) #Test passed 
+
+#Creating dummy variable for training data 
+train_df_dummy = dummy.data.frame(train_df)
+XREG_train = train_df_dummy[!names(train_df_dummy) %in% c('Date','Volume')]
+XREG_train_reduced = XREG_train[!names(XREG_train) %in% c('DayFriday')] #Requires one variables less 
+
+#Creating dummy variable for testing data 
+test_df_dummy = dummy.data.frame(test_df)
+XREG_test = test_df_dummy[!names(test_df_dummy) %in% c('Date','Volume')]
+XREG_test_reduced = XREG_test[!names(XREG_test) %in% c('DayFriday')] #Requires one variables less 
+
+
+#Implementing ARIMA Model 
+arima_seven = Arima(train_freq_seven, order = c(7, 1, 0), seasonal = list(order = c(7, 1, 0), period = 7), method = 'CSS', xreg = XREG_train_reduced)
+
+#Model Accuracy on training set 
+accuracy(arima_seven)
+
+#Model Forecast 
+arima_seven_forecast = forecast.Arima(arima_seven, h = 30, xreg = XREG_test_reduced)
+
+
+#Model accuracy on forecast 
+accuracy(arima_seven_forecast, test_df$Volume) 
+
+
+########################################################Changing p,d,f for arima #############p,d,f = (7,1,2) #######################
+#Implementing ARIMA Model 
+arima_seven_712 = Arima(train_freq_seven, order = c(7, 1, 2), seasonal = list(order = c(1, 0, 1), period = 7), method = 'CSS', xreg = XREG_train_reduced)
+
+#Model Accuracy on training set 
+accuracy(arima_seven_712)
+
+#Model Forecast 
+arima_seven_712_forecast = forecast.Arima(arima_seven_712, h = 30, xreg = XREG_test_reduced)
+
+#Model accuracy on forecast 
+accuracy(arima_seven_712_forecast, test_df$Volume) 
+
+
+######################################################Changing Frequency to 30 ##################################################
+train_freq_thirty = ts(train_df$Volume, start = c(2016-07-01), frequency = 30)
+test_freq_thirty = ts(test_df$Volume, start = c(2017-11-01), frequency = 30)
+
+plot(decompose(train_freq_thirty))
+
+#Augmented Dickey fuller test 
+adf.test(train_freq_thirty) #Test passed 
+
+
+#Implementing ARIMA Model 
+arima_thirty = Arima(train_freq_thirty, order = c(7, 0, 2), seasonal = list(order = c(7, 0, 2), period = 30), method = 'CSS', xreg = XREG_train_reduced)
+
+#Model Accuracy on training set 
+accuracy(arima_thirty)
+
+#Model Forecast 
+arima_thirty_forecast = forecast.Arima(arima_thirty, h = 30, xreg = XREG_test_reduced)
+
+#Model accuracy on forecast 
+accuracy(arima_thirty_forecast, test_df$Volume) 
+
+####################################################Changing Frequency to 30 and p,d,f = (7,0,2)#################################
+######################################################Changing Frequency to 30 ##################################################
+#Implementing ARIMA Model 
+arima_thirty_702 = Arima(train_freq_thirty, order = c(7, 1, 2), seasonal = list(order = c(7, 1, 2), period = 30), method = 'CSS', xreg = XREG_train_reduced)
+
+#Model Accuracy on training set 
+accuracy(arima_thirty_702)
+
+#Model Forecast 
+arima_thirty_702_forecast = forecast.Arima(arima_thirty_702, h = 30, xreg = XREG_test_reduced)
+
+#Model accuracy on forecast 
+accuracy(arima_thirty_702_forecast, test_df$Volume) 
+
+
+
+##########################################################Exploring different options #####################################
+acf(train_freq_seven)
+pacf(train_freq_seven)
+#Implementing ARIMA Model 
+x = c(7,1,0)
+expand.grid(x,x,x)
+##################################################RUN ####################################################################
+arima_seven_one_seven = Arima(train_freq_seven, order = c(7, 1,2), seasonal = list(order = c(7, 1, 2), period = 7), method = 'ML', xreg = XREG_train_reduced)
+
+#Model Accuracy on training set 
+accuracy(arima_seven_one_seven)
+
+#Model Forecast 
+arima_seven_one_seven_forecast = forecast.Arima(arima_seven_one_seven, h = 30, xreg = XREG_test_reduced)
+
+
+#Model accuracy on forecast 
+accuracy(arima_seven_one_seven_forecast, test_df$Volume) 
+
+
+fit_forecast= c(arima_seven_one_seven$fitted ,as.vector(arima_seven_one_seven_forecast$mean))
+gtech$fit_forecast = fit_forecast
+
+
+ggplot(aes( x = Date, y = Volume), data = gtech) + geom_line() + geom_line(aes(x = Date, y = fit_forecast), col = 'red')
+str(gtech)
+###############################################SAVE ##############################################
+########################################################Changing p,d,f for arima #############p,d,f = (7,1,2) #######################
+#Implementing ARIMA Model 
+arima_seven_712 = Arima(train_freq_seven, order = c(7, 1, 2), seasonal = list(order = c(1, 0, 1), period = 7), method = 'CSS', xreg = XREG_train_reduced)
+
+#Model Accuracy on training set 
+accuracy(arima_seven_712)
+
+#Model Forecast 
+arima_seven_712_forecast = forecast.Arima(arima_seven_712, h = 30, xreg = XREG_test_reduced)
+
+#Model accuracy on forecast 
+accuracy(arima_seven_712_forecast, test_df$Volume) 
+
+
+
+
+
+######################################################################################################################3
+acf(train_freq_seven)
+pacf(train_freq_seven)
+x = c(7,1)
+x_combination = expand.grid(x,x)
+mape_vector = 
+#Changing non-seasonal component 
+
+  
+mape_vector = rep(0, 24) 
+
+for(i in range(1:NROW(x_combination))){
+  arima_method = Arima(train_freq_seven, order = as.numeric(x_combination[i,1:])
+                                , seasonal = list(order = as.numeric(x_combination[i+3,1:3]), period = 7), method = 'ML', xreg = XREG_train_reduced)
+  
+  mape_vector[i] = data.frame(accuracy(arima_method))$MAPE
+  print(i)
+  
+  
+}
+
+mape_vector = data.frame(accuracy(arima_method))$MAPE
+
+#Implementing ARIMA Model 
+arima_seven_one_seven = Arima(train_freq_seven, order = c(7, 1, 0), seasonal = list(order = c(7, 1, 0), period = 7), method = 'ML', xreg = XREG_train_reduced)
+
+#Model Accuracy on training set 
+as.data.frame(accuracy(arima_seven_one_seven))$MAPE
+
+#Model Forecast 
+arima_seven_one_seven_forecast = forecast.Arima(arima_seven_one_seven, h = 30, xreg = XREG_test_reduced)
+
+
+#Model accuracy on forecast 
+accuracy(arima_seven_one_seven_forecast, test_df$Volume) 
+
+
+
+
+#################################################Implementing ARIMA with STLM ##########################3
+#Implementing ARIMA Model 
+stlm_arima  = stlm(train_freq_thirty, method = 'ets', etsmodel = 'ZZZ', allow.multiplicative.trend = TRUE)
+stlm_arima = stlm
+help(ets)
+
+ets_train = ets(train_freq_seven, model = 'ZZZ', allow.multiplicative.trend = TRUE)
+#Model Accuracy on training set 
+accuracy(ets_train)
+
+#Model Forecast 
+arima_seven_712_forecast = forecast.Arima(arima_seven_712, h = 30, xreg = XREG_test_reduced)
+
+#Model accuracy on forecast 
+accuracy(arima_seven_712_forecast, test_df$Volume) 
