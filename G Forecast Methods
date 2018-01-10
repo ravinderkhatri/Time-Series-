@@ -1,0 +1,397 @@
+---
+title: "G Forecast"
+author: "Ravinder Singh"
+
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, warning = F, message = F }
+library(TSA)
+library(ggplot2)
+library(plotly)
+library(forecast)
+library(scales)
+setwd('C:/Users/ravindersin/Desktop/DNA-TS')
+gtech = read.csv('C:/Users/ravindersin/Desktop/DNA-TS/gtech.csv', stringsAsFactors = FALSE)
+gtech$Date = as.Date(gtech$Date, format = '%d-%B-%y')
+gtech$Day = weekdays(gtech$Date)
+
+
+train_df = gtech[gtech$Date <= as.Date('2017-10-31', format = '%Y-%m-%d'),]
+test_df = gtech[gtech$Date > as.Date('2017-10-31', format = '%Y-%m-%d'),]
+
+plot(train_df$Volume, type = 'l')
+
+time_period = 1/periodogram(train_df$Volume)$freq
+spec = periodogram(train_df$Volume)$spec
+time_period_df = data.frame(time_period, spec)
+time_period_df = time_period_df[order(-time_period_df$spec),]
+
+
+#setting up frequency as 7 
+#Smoothing the series 
+train_df$ma_7 = ma(train_df$Volume, order = 7)
+train_df$ma_30 = ma(train_df$Volume, order = 30)
+
+
+p = ggplot() +  
+  geom_line(data = train_df, aes( x = Date, y = Volume, color = 'Observation'))+
+  geom_line(data = train_df, aes(x = Date, y = ma_7,color = '7 Days MA'), na.rm = TRUE) +
+  geom_line(data = train_df, aes(x = Date, y = ma_30, color = '30 Days MA'), na.rm = TRUE ) 
+
+  
+ggplotly(p)
+
+
+########################################################Approach 3 ###################################
+#Segmenting data into weekdays and weekends 
+
+#creating vector for weekends 
+days_excluded = c('Saturday', 'Sunday')
+
+#Splitting training data into weekdays and weekends 
+train_df_weekday = train_df[!train_df$Day %in% days_excluded,]
+train_df_weekend = train_df[train_df$Day %in% days_excluded,]
+
+
+#Splitting testing data into weekdays and weekends 
+test_df_weekday = test_df[!test_df$Day %in% days_excluded, ]
+test_df_weekend = test_df[test_df$Day %in% days_excluded, ]
+
+
+train_weekday_periodogram = periodogram(train_df_weekday$Volume)
+train_weekdend_periodogram = periodogram(train_df_weekend$Volume)
+
+
+#Investigating frequency for weekdays data 
+time_period_weekday = 1/periodogram(train_df_weekday$Volume)$freq
+spec_weekday = periodogram(train_df_weekday$Volume)$spec
+time_period_df_weekday = data.frame(time_period_weekday, spec_weekday)
+time_period_df_weekday = time_period_df_weekday[order(-time_period_df_weekday$spec),]
+
+#Top 5 Frequency in descending order 
+head(time_period_df_weekday$time_period_weekday,5)
+
+#Converting weekdays training data into time series 
+train_weekday_ts = ts(train_df_weekday$Volume, frequency = 120)
+
+#Implementing auto,arima model 
+arima_weekday_model = auto.arima(train_weekday_ts, seasonal = TRUE, approximation = FALSE)
+arima_forecast_weekday = forecast(arima_weekday_model, h = 22)
+accuracy(arima_weekday_model)
+
+
+#Fitting models on residuals 
+ma_weekday_model_residuals = rollmean(residuals(arima_weekday_model), k = 20, align = 'right')
+
+#Forecasting for residuals 
+ma_forecast_weekday_residuals = rep(as.numeric(tail(ma_weekday_model_residuals, 22)))
+
+
+
+#Combining fitted values for weekdays models 
+arima_res_ma_fit = as.vector(arima_weekday_model$fitted) + 
+                   c( rep(0,(NROW(arima_weekday_model$fitted) - NROW(ma_weekday_model_residuals))),                                                           as.vector(ma_weekday_model_residuals))
+
+
+arima_res_ma_fit
+#Model accuracy on training data 
+percent(mean((abs(train_df_weekday$Volume - arima_res_ma_fit)/ abs(train_df_weekday$Volume))))
+
+
+#Combining weekdays forecast 
+weekdays_forecast = arima_forecast_weekday$mean + ma_forecast_weekday_residuals
+
+test_df_weekday$forecast = as.numeric(weekdays_forecast)
+
+#Calculating mape on training data 
+
+percent(mean(abs(train_df_weekday$Volume - test_df_weekday$forecast)/ abs(train_df_weekday$Volume)))
+
+
+
+#Calculating mape on testing data
+percent(mean(abs(test_df_weekday$Volume - test_df_weekday$forecast) / abs(test_df_weekday$Volume))) # MAPE ~ 17%
+
+#Investigating frequency for weekends data 
+time_period_weekend = 1/ periodogram(train_df_weekend$Volume)$freq
+spec_weekend = periodogram(train_df_weekend$Volume)$spec
+time_period_df_weekend = data.frame(time_period_weekend, spec_weekend)
+time_period_df_weekend = time_period_df_weekend[order(-time_period_df_weekend$spec),]
+
+#Top 5 Frequency in descending order 
+head(time_period_df_weekend$time_period_weekend, 5)
+
+#Converting weekends training data into time series 
+train_weekend_ts = ts(train_df_weekend$Volume, frequency = 2)
+
+#Implementing auto.arima model 
+arima_weekend_model = auto.arima(train_weekend_ts, seasonal = TRUE, approximation = FALSE)
+arima_forecast_weekend = forecast(arima_weekend_model, h = 8)
+
+arima_weekend_model_residuals  = auto.arima(residuals(arima_weekend_model), seasonal = TRUE)
+arima_forecast_weekend_residuals = forecast(arima_weekend_model_residuals, h = 8)
+
+#Combining forecast and residuals forecast
+weekend_forecast = arima_forecast_weekend$mean + arima_forecast_weekend_residuals$mean
+
+
+test_df_weekend$forecast = as.numeric(weekend_forecast)
+
+#Calculating mape 
+percent(mean(abs(test_df_weekend$Volume - test_df_weekend$forecast) / abs(test_df_weekend$Volume) )) # MAPE - ~ 24%
+
+
+#Combining both forecast 
+test_df_combined = rbind.data.frame(test_df_weekday, test_df_weekend)
+test_df_combined = test_df_combined[order(test_df_combined$Date),]
+
+percent(mean(abs(test_df_combined$Volume - test_df_combined$forecast) / abs(test_df_combined$Volume))) # ~ MAPE - 19.3329
+
+```
+
+```{r, warning = F, message = F}
+
+###############################################Apporach###############################################################
+#########################################Modelling Weekdays ################################################
+##Exponential smoothing state space model with Box-Cox transformation, ARMA errors, Trend and Seasonal components
+train_weekday_msts = msts(train_df_weekday$Volume, seasonal.periods = c(5,90,120, 360))
+
+train_weekday_msts_tbats = tbats(train_weekday_msts, use.arma.errors = TRUE, biasadj = FALSE, use.parallel = TRUE)
+
+accuracy(train_weekday_msts_tbats)
+
+#Extracting residuals 
+tbats_residuals = as.numeric(train_weekday_msts_tbats$errors )
+
+#Investigating periodicity for residuals 
+tbats_residuals_periodogram = periodogram(tbats_residuals)
+
+
+#Investigating frequency for residuals 
+time_period_residuals = 1/tbats_residuals_periodogram$freq
+
+spec_tbats_residuals = tbats_residuals_periodogram$spec
+
+time_period_tbats_residuals_df = data.frame(time_period_residuals, spec_tbats_residuals)
+time_period_tbats_residuals_df[order(-time_period_tbats_residuals_df$spec_tbats_residuals),]
+
+#Top 5 Frequency in descending order 
+head(time_period_tbats_residuals_df$time_period_residuals,10)
+
+
+msts_residuals = msts(tbats_residuals, seasonal.periods = c(3, 11))
+
+msts_residuals_tbats = tbats(msts_residuals)
+
+accuracy(msts_residuals_tbats)
+
+#Training accuracy for Exponential smoothing state space model with Box-Cox transformation, ARMA errors, Trend and #Seasonal components 
+train_fitted_tbats_values = as.numeric(train_weekday_msts_tbats$fitted.values) +                                                                           as.numeric(msts_residuals_tbats$fitted.values)
+
+
+
+percent(mean(abs(train_fitted_tbats_values - train_df_weekday$Volume)/ abs(train_df_weekday$Volume)))
+
+
+#Forecasting observation using Exponential Smoothing Box Cox Transformation ARMA errors Trend and Seasonal Components
+weekday_forecast_tbats = forecast(train_weekday_msts_tbats, h = 22)
+
+percent(mean(abs(test_df_weekday$Volume - weekday_forecast_tbats$mean) / abs(test_df_weekday$Volume))) # MAPE - 16.6 
+
+                    
+# Forecasting residuals using Exponential Smoothing Box Cox Transformation ARMA errors Trend and Seasonal Components
+msts_residuals_forecast = forecast(msts_residuals_tbats, h = 22)
+
+forecast_value = as.numeric(msts_residuals_forecast$mean) + as.numeric(weekday_forecast_tbats$mean)
+
+percent(mean(abs(test_df_weekday$Volume - forecast_value) / abs(test_df_weekday$Volume))) # MAPE - 16.36
+
+
+
+#Training accuracy for Exponential smoothing state space model with Box-Cox transformation, ARMA errors, Trend and Seasonal components and errors modelled using neutral networks 
+temp_ts=ts(tbats_residuals, frequency = 7 )
+fit_nn = nnetar(cos(temp_ts),lambda = 1, p = 3, linout = TRUE)
+fit_nn_not_na = as.numeric(fit_nn$fitted)[!is.na(as.numeric(fit_nn$fitted))]
+fit_nn_complete = c(rep(0,7), fit_nn_not_na)
+tbats_nn = as.numeric(train_weekday_msts_tbats$fitted.values) + fit_nn_complete
+
+percent(mean(abs(train_df_weekday$Volume - tbats_nn) /  abs(train_df_weekday$Volume)))
+
+#Note we replaced NA occured in neural model fit by zero
+
+
+#Forecasting residuals using neural networks 
+nn_forecast = forecast(fit_nn, h = 22)
+
+total_forecast = as.numeric(weekday_forecast_tbats$mean) + as.numeric(nn_forecast$mean)
+tota_forecast_s = as.numeric(weekday_forecast_tbats$mean) 
+
+
+
+percent(mean(abs(test_df_weekday$Volume - total_forecast) / abs(test_df_weekday$Volume))) # MAPE - 16.6
+
+
+###############################################Modelling Weekends##################################################
+##Exponential smoothing state space model with Box-Cox transformation, ARMA errors, Trend and Seasonal components 
+train_weekend_msts = msts(train_df_weekend$Volume, seasonal.periods = c(2, 48))
+
+train_weekend_msts_tbats = tbats(train_weekend_msts, use.arma.errors = TRUE, biasadj = FALSE, use.parallel = TRUE)
+
+accuracy(train_weekend_msts_tbats)
+
+#Extracting weekend residuals  
+tbats_residuals_weekend = as.numeric(train_weekend_msts_tbats$errors)
+
+#Investigating periodicity for weekend residuals 
+tbats_residuals_periodogram_weekend = periodogram(tbats_residuals_weekend)
+
+
+#Investigating frequency for residuals 
+time_period_residuals_weekend = 1/tbats_residuals_periodogram_weekend$freq
+
+spec_tbats_residuals_weekend = tbats_residuals_periodogram_weekend$spec
+
+
+time_period_tbats_weekend_residuals_df = data.frame(time_period_residuals_weekend, spec_tbats_residuals_weekend)
+time_period_tbats_weekend_residuals_df[order(-time_period_tbats_weekend_residuals_df$spec_tbats_residuals_weekend),]
+
+#Top 5 Frequency in descending order 
+head(time_period_tbats_weekend_residuals_df$time_period_residuals_weekend,10)
+
+
+msts_residuals_weekend = msts(tbats_residuals_weekend, seasonal.periods = c(48, 72, 144))
+
+msts_residuals_tbats_weekend = tbats(msts_residuals_weekend)
+
+accuracy(msts_residuals_tbats_weekend)
+
+#Weekend Training accuracy for Exponential smoothing state space model with Box-Cox transformation, ARMA errors, Trend and #Seasonal components 
+train_fitted_tbats_values_weekend = as.numeric(train_weekend_msts_tbats$fitted.values) +                                                                      as.numeric(msts_residuals_tbats_weekend$fitted.values)
+
+
+percent(mean(abs(train_df_weekend$Volume - train_fitted_tbats_values_weekend )/ abs(train_df_weekend$Volume)))
+
+
+#Forecasting observation using Exponential Smoothing Box Cox Transformation ARMA errors Trend and Seasonal Components
+weekend_forecast_tbats = forecast(train_weekend_msts_tbats, h = 8)
+
+percent(mean(abs(test_df_weekend$Volume - weekend_forecast_tbats$mean) / abs(test_df_weekend$Volume))) # MAPE - 26.8
+
+                    
+# Forecasting residuals using Exponential Smoothing Box Cox Transformation ARMA errors Trend and Seasonal Components
+msts_residuals_forecast_weekend = forecast(msts_residuals_tbats_weekend, h = 8)
+
+forecast_value_weekend = as.numeric(msts_residuals_forecast_weekend$mean) + as.numeric(weekend_forecast_tbats$mean)
+
+percent(mean(abs(test_df_weekend$Volume - forecast_value_weekend) / abs(test_df_weekend$Volume))) # MAPE - 26.7
+
+
+
+#Weekend Training accuracy for Exponential smoothing state space model with Box-Cox transformation, ARMA errors, Trend and #Seasonal components and forecasting error using neural networks 
+temp_ts_weekend=ts(tbats_residuals_weekend, frequency = 7 )
+fit_nn_weekend = nnetar(cos(temp_ts_weekend),lambda = 1, p = 3, linout = TRUE)
+
+fit_nn_weekend_not_na = as.numeric(fit_nn_weekend$fitted)[!is.na(as.numeric(fit_nn_weekend$fitted))]
+fit_nn_weekend_complete = c(rep(0,7), fit_nn_weekend_not_na)
+tbats_nn_weekend = as.numeric(train_weekend_msts_tbats$fitted.values) + fit_nn_weekend_complete
+
+percent(mean(abs(train_df_weekend$Volume - tbats_nn_weekend)/ abs(train_df_weekend$Volume)))
+
+#Forecasting residuals using neural networks 
+nn_forecast_weekend = forecast(fit_nn_weekend, h = 8)
+
+total_forecast_weekend = as.numeric(weekend_forecast_tbats$mean) + as.numeric(nn_forecast_weekend$mean)
+
+percent(mean(abs(test_df_weekend$Volume - total_forecast_weekend) / abs(test_df_weekend$Volume))) # MAPE - 26.7
+
+
+###########################Forecasting residuals using Arima with MA = 2 #########################################
+ma_temp_ts_weekend = Arima(temp_ts_weekend, order = c(0,2,0))
+ma_temp_ts_forecast_weekend = forecast(ma_temp_ts_weekend, h = 8)
+plot(ma_temp_ts_forecast_weekend$fitted)
+temp_ts_auto_arima_weekend = auto.arima(temp_ts_weekend, seasonal  = TRUE)
+temp_auto_arima_forecast_weekend = forecast(temp_ts_auto_arima_weekend, h = 8)
+
+total_forecast_arima_weekend = as.numeric(weekend_forecast_tbats$mean) + as.numeric(temp_auto_arima_forecast_weekend$mean)
+
+
+
+#Plotting training data and fitted model 
+plot(train_df_weekday$Volume, type = 'l')
+lines(as.numeric(weekday_forecast_tbats$fitted) , col = 'red')
+lines(as.numeric(weekday_forecast_tbats$fitted) + as.numeric(ma_temp_ts$fitted), col = 'blue')
+
+
+#Plotting forecasting and testing model 
+plot(test_df_weekday$Volume, type = 'l')
+lines(as.numeric(weekday_forecast_tbats$mean), col = 'red')
+lines(as.numeric(weekday_forecast_tbats$mean) + as.numeric(ma_temp_ts_forecast$mean), col = 'blue')
+
+temp = data.frame(as.numeric(test_df_weekday$Volume), as.numeric(weekday_forecast_tbats$mean)
+```
+
+```{r, warning = F, message = F}
+#Combining Models for weekdays and weekends
+
+#Weekdays
+#Exponential smoothing method - train_fitted_tbats_values
+#Exponential smoothing forecast - forecast_value
+#Neural method - tbats_nn
+#Neural Forecast - total_forecast 
+
+#Weekends 
+
+#Exponential smoothing method - train_fitted_tbats_values_weekend
+#Exponential smoothing forecast - forecast_value_weekend
+#Neutral method - tbats_nn_weekend
+#Neural Forecast - total_forecast_weekend
+
+#Combining weekdays and weekends tbats model
+train_df_weekday$train_fitted_tbats_value = train_fitted_tbats_values
+test_df_weekday$tbats_forecast = forecast_value
+train_df_weekday$tbats_nn = tbats_nn
+test_df_weekday$tbats_nn_forecast = total_forecast
+
+
+train_df_weekend$train_fitted_tbats_value = train_fitted_tbats_values_weekend
+test_df_weekend$tbats_forecast = forecast_value_weekend
+train_df_weekend$tbats_nn = tbats_nn_weekend
+test_df_weekend$tbats_nn_forecast = total_forecast_weekend
+
+train_df_complete = rbind.data.frame(train_df_weekday, train_df_weekend)
+train_df_complete = train_df_complete[order(train_df_complete$Date),]
+
+test_df_complete = rbind.data.frame(test_df_weekday, test_df_weekday)
+test_df_complete = test_df_complete[order(test_df_complete$Date),]
+ 
+#Accuracy 
+percent(mean(abs(train_df_complete$Volume- train_df_complete$train_fitted_tbats_value)/abs(train_df_complete$Volume)))
+
+percent(mean(abs(train_df_complete$Volume - train_df_complete$tbats_nn)/ abs(train_df_complete$Volume)))
+
+percent(mean(abs(test_df_complete$Volume - test_df_complete$tbats_forecast)/ abs(test_df_complete$Volume)))
+
+percent(mean(abs(test_df_complete$Volume - test_df_complete$tbats_nn_forecast)/abs(test_df_complete$Volume)))
+
+
+#Combining Forecast for weekdays and weekends 
+weekday_forecast_tbats$mean
+
+
+
+```
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
