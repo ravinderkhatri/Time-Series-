@@ -1,0 +1,39 @@
+plot_ts = function( ts, time = NULL,
+                    time_frequency  = NULL, line_color = NULL,
+                    plot_title = NULL, title_color = NULL, title_size = NULL, title_face = NULL,
+                    x_axis_title_color = NULL, x_axis_title_size = NULL, x_axis_title_face = NULL,
+                    y_axis_title_color = NULL, y_axis_title_size = NULL, y_axis_title_face = NULL
+
+        ){
+                    if(is.null(time))               time = 1:NROW(ts)
+                    if(is.null(time_frequency))     date_breaks = '4 week'
+                    if(is.null(line_color))         line_color = 'blue'
+                    if(is.null(plot_title))         plot_title = NULL
+                    if(is.null(title_color))        title_color = 'black'
+                    if(is.null(title_size))         title_size = 10
+                    if(is.null(title_face))         title_face = 'bold'
+                    if(is.null(x_axis_title_color)) x_axis_title_color = 'black'
+                    if(is.null(x_axis_title_size))  x_axis_title_size = 10
+                    if(is.null(x_axis_title_face))  x_axis_title_face = 'bold'
+                    if(is.null(y_axis_title_color)) y_axis_title_color = 'black'
+                    if(is.null(y_axis_title_size))  y_axis_title_size = 10
+                    if(is.null(y_axis_title_face))  y_axis_title_face = 'bold'
+
+                    ts_df = data.frame(Value = as.numeric(ts), Time = time)
+                    if(class(time) == 'Date')
+                    {
+                      p = ggplot(data = ts_df, aes(x = Time, y = Value)) + geom_line(color = line_color) +
+                          ggtitle(plot_title) +
+                          scale_x_date(date_labels = '%b %d', date_breaks = '1 day') +
+                          theme(plot.title = element_text(color = title_color, size = title_size, face = title_face),
+                          axis.title.x = element_text(color = x_axis_title_color, size = x_axis_title_size, face = x_axis_title_face ),
+                          axis.title.y = element_text(color = y_axis_title_color, size = y_axis_title_size, face = y_axis_title_face))
+                      return(p)
+                    } else{
+                      p =   ggplot(data = ts_df, aes(x = Time, y = Value)) + geom_line(color = line_color) +
+                            theme(plot.title = element_text(color = title_color, size = title_size, face = title_face),
+                            axis.title.x = element_text(color = x_axis_title_color, size = x_axis_title_size, face = x_axis_title_face ),
+                            axis.title.y = element_text(color = y_axis_title_color, size = y_axis_title_size, face = y_axis_title_face))
+                      return(p)
+                          }
+          }
