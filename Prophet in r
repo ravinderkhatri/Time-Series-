@@ -1,0 +1,128 @@
+#install.packages('prophet')
+library(Rcpp)
+library(prophet)
+library(TSA)
+library(ggplot2)
+library(plotly)
+library(forecast)
+library(scales)
+library(urca)
+library(dummies)
+library(rstan)
+#devtools::install_github('facebookincubator/prophet', subdir='R')
+#devtools::install_github("tidyverse/ggplot2")
+
+
+
+#install.packages("rstan", repos = "https://cloud.r-project.org/", dependencies=TRUE)
+#install.packages(c("Rcpp", "rstan"), type = "source")
+
+
+
+#install.packages(tibble)
+setwd('C:/Users/ravindersin/Desktop/DNA-TS')
+gtech = read.csv('C:/Users/ravindersin/Desktop/DNA-TS/gtech.csv', stringsAsFactors = FALSE)
+gtech$Date = as.Date(gtech$Date, format = '%d-%B-%y')
+names(gtech) = c('ds', 'y')
+#gtech$Day = weekdays(gtech$Date)
+
+
+
+ggplot(aes(x = gtech$Date, y = gtech$Volume), data = gtech)+ geom_line()
+
+
+train_df = gtech[gtech$ds <= as.Date('2017-10-31', format = '%Y-%m-%d'),]
+test_df = gtech[gtech$ds > as.Date('2017-10-31', format = '%Y-%m-%d'),]
+
+prophet_model = prophet(train_df, yearly.seasonality = TRUE, daily.seasonality = TRUE)
+prophet_model_forecast = make_future_dataframe(prophet_model, period = 30)
+forecast = predict(prophet_model, prophet_model_forecast)
+tail(forecast[c('ds', 'yhat', 'yhat_lower', 'yhat_upper')])
+
+
+#Checking model accuracy 
+percent(mean(abs(train_df$y - head(forecast$yhat, NROW(train_df$y)))/ abs(train_df$y))) #36.1
+#Checking forecasating  accuracy 
+percent(mean(abs(test_df$y - tail(forecast$yhat, 30))/ abs(test_df$y))) #60.1
+
+
+#plotting graph 
+plot(prophet_model, forecast)
+prophet_plot_components(prophet_model, forecast)
+
+
+#######################Other options 
+
+###############################################Approach - Auto selection ########################
+#######################Other options 
+prophet_model_1 = prophet(train_df, yearly.seasonality = TRUE, daily.seasonality = TRUE, 
+                          weekly.seasonality =TRUE)
+prophet_model_1_forecast = make_future_dataframe(prophet_model_1, period = 30)
+forecast_1 = predict(prophet_model_1, prophet_model_3_forecast)
+#tail(forecast_2[c('ds', 'yhat', 'yhat_lower', 'yhat_upper')])
+
+
+#Checking model accuracy 
+percent(mean(abs(train_df$y - head(forecast_1$yhat, NROW(train_df$y)))/ abs(train_df$y))) #36
+#Checking forecasating  accuracy 
+percent(mean(abs(test_df$y - tail(forecast_1$yhat, 30))/ abs(test_df$y))) #60.2
+
+
+
+
+
+
+##############################Approach 3 ###########################################
+prophet_model_2 = prophet(train_df, yearly.seasonality = TRUE, daily.seasonality = FALSE, 
+                          weekly.seasonality = TRUE, seasonality.prior.scale = .2)
+prophet_model_2_forecast = make_future_dataframe(prophet_model_2, period = 30)
+forecast_2 = predict(prophet_model_2, prophet_model_2_forecast)
+#tail(forecast_2[c('ds', 'yhat', 'yhat_lower', 'yhat_upper')])
+
+
+#Checking model accuracy 
+percent(mean(abs(train_df$y - head(forecast_2$yhat, NROW(train_df$y)))/ abs(train_df$y))) #36
+#Checking forecasating  accuracy 
+percent(mean(abs(test_df$y - tail(forecast_2$yhat, 30))/ abs(test_df$y))) #60.2
+
+
+#plotting graph 
+plot(prophet_model, forecast)
+prophet_plot_components(prophet_model, forecast)
+
+
+###############################################Approach - Auto selection ########################
+#######################Other options 
+prophet_model_3 = prophet(train_df, yearly.seasonality = 'auto', daily.seasonality = 'auto', 
+                          weekly.seasonality = 'auto')
+prophet_model_3_forecast = make_future_dataframe(prophet_model_3, period = 30)
+forecast_3 = predict(prophet_model_3, prophet_model_3_forecast)
+#tail(forecast_2[c('ds', 'yhat', 'yhat_lower', 'yhat_upper')])
+
+
+#Checking model accuracy 
+percent(mean(abs(train_df$y - head(forecast_3$yhat, NROW(train_df$y)))/ abs(train_df$y))) #36
+#Checking forecasating  accuracy 
+percent(mean(abs(test_df$y - tail(forecast_3$yhat, 30))/ abs(test_df$y))) #60.2
+
+
+#plotting graph 
+plot(prophet_model, forecast)
+prophet_plot_components(prophet_model, forecast)
+
+
+
+#######################Other options 
+prophet_model_4= prophet(train_df, yearly.seasonality = TRUE, daily.seasonality = TRUE, 
+                          weekly.seasonality =TRUE, uncertainty.samples = 1000)
+prophet_model_4_forecast = make_future_dataframe(prophet_model_4, period = 30)
+forecast_4 = predict(prophet_model_4, prophet_model_4_forecast)
+#tail(forecast_2[c('ds', 'yhat', 'yhat_lower', 'yhat_upper')])
+
+
+#Checking model accuracy 
+percent(mean(abs(train_df$y - head(forecast_4$yhat, NROW(train_df$y)))/ abs(train_df$y))) #36
+#Checking forecasating  accuracy 
+percent(mean(abs(test_df$y - tail(forecast_4$yhat, 30))/ abs(test_df$y))) #60.2
+
+
