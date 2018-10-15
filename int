@@ -1,0 +1,269 @@
+import pandas as pd 
+import numpy as np 
+import os 
+
+os.getcwd()
+
+os.chdir("C:\\Users\\ravin\\downloads")
+
+er_data = pd.read_csv('dataset.csv', sep = ";")
+
+#Steps 
+#1) Checking for missing values and perform the missing values treatment 
+#2) Check the variable type and produce dummy variable from categorical variable. 
+#3) Assign predictors to X and reponse variable to y 
+#4) Split the data into training and testing (80:20)
+
+
+#checking for missing values 
+er_data.isnull().sum().sort_values(ascending = False) / len(er_data)*100
+
+#Only ~5% of the obs has missing values so removing missing values 
+er_data.dropna(inplace = True)
+
+
+#checking variable type 
+er_data.dtypes.unique()
+
+#separating numeric and other data types 
+er_data_numeric = er_data.select_dtypes(exclude  = ['O']) #numeric dataframe 
+er_data_other = er_data.select_dtypes(include = ['O'])
+
+#removing date column from er_data_other 
+er_data_other = er_data_other.drop(['date_time','utrancell'], axis = 1)
+
+#Generating dummy variable for the required categorical variable 
+er_data_other_dummy=pd.get_dummies(er_data_other, prefix = ['rnc','city']) #dummy variable dataframe 
+
+#concatenating dummy variable dataframe and numeric dataframe 
+er_data_final =pd.concat([er_data_other_dummy, er_data_numeric], axis = 1)
+
+#Selecting predictors and response variable 
+X = er_data_final.drop(['command'], axis= 1)
+y = er_data['command']
+
+#Splitting data into training and testing 
+from sklearn.model_selection import train_test_split 
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = .20, random_state = 100)
+
+#Standardizing the data 
+from sklearn.preprocessing import StandardScaler
+X_train_std = StandardScaler().fit_transform(X_train)
+
+#Performing PCA analysis 
+from sklearn.decomposition import PCA 
+pca = PCA()
+principal_components = pca.fit_transform(X_train_std)
+
+#Eigen vectors 
+print('Eigen vectors \n%s' %pca.components_)
+
+print('\nEigen values \n%s' %pca.explained_variance_)
+
+#considering principal components that expalained 95% of the data
+len(pca.explained_variance_ratio_[pca.explained_variance_ratio_.cumsum()<= .90])
+
+#selecting 58 prinicipal components 
+from sklearn.decomposition import PCA 
+pca_mod = PCA(n_components = 58)
+principal_components_mod_fit  =  pca_mod.fit_transform(X_train_std)
+ 
+principal_df = pd.DataFrame(data = principal_components_mod_fit, columns  = [str('pc' + str(i)) for i in range(58)])
+
+#Preparing testing data set 
+#standardizing testing data 
+from sklearn.preprocessing import StandardScaler
+X_test_std = StandardScaler().fit_transform(X_test)
+
+#Performing PCA for testing data 
+from sklearn.decomposition import PCA 
+pca_test = PCA(n_components = 58)
+principal_components_test = pca_test.fit_transform(X_test_std)
+
+principal_df_test = pd.DataFrame(data = principal_components_test, columns = [str('pc' + str(i)) for i in range(58)])
+
+#building decision tree 
+from sklearn.tree import DecisionTreeClassifier
+dtree = DecisionTreeClassifier(criterion='gini')
+dtree_fit = dtree.fit(X = principal_df, y = y_train)
+
+#checking the accuracy of decision tree on training data 
+print('Deicision tree training accuracy %s' %dtree_fit.score(X = principal_df, y = y_train))
+
+#checking accuracy of decision tree on testing data 
+print('\nDecision tree testing accuracy %s' %dtree_fit.score(X = principal_df_test, y= y_test))
+
+#ignore any warnings 
+import warnings
+warnings.filterwarnings("ignore")
+
+#performing cross validation on decision tree 
+from sklearn.model_selection import cross_val_score
+cv_results_dtree= cross_val_score(dtree, X = principal_df, y = y_train, cv = 5)
+print('CV 5 Fold Accuracy %s' %cv_results_dtree.mean())
+
+#Buidling decision tree with criterion = 'entropy' 
+from sklearn.tree import DecisionTreeClassifier
+dtree_en = DecisionTreeClassifier(criterion = 'entropy')
+dtree_fit_en = dtree_en.fit(X = principal_df, y = y_train)
+
+#checking fit accuracy on training data 
+print('Decision tree accuracy on training data %s' %dtree_fit_en.score(X = principal_df, y = y_train))
+
+#checking accuracy on testing data 
+print('Decision tree accuracy on testing data using criterion = entropy %s' %dtree_fit_en.score(X = principal_df_test, y = y_test))
+
+#ignore any warnings 
+import warnings 
+warnings.filterwarnings("ignore")
+
+#perfrom cross validation on decision tree 
+from sklearn.model_selection import cross_val_score
+cv_results_dtree_en = cross_val_score(dtree_en, X = principal_df, y = y_train)
+print('CV 5 Fold Accuracy %s' %cv_results_dtree_en.mean())
+
+#Buidling random forest 
+from sklearn.ensemble import RandomForestClassifier
+rf_clf = RandomForestClassifier(n_estimators= 100, random_state = 0, max_features = .80)
+rf_clf_fit = rf_clf.fit(X = principal_df, y = y_train)
+
+#checking fit on training data 
+print('Random Forest accuracy on training data %s' %rf_clf_fit.score(X = principal_df, y = y_train))
+
+#checking accuracy on testing data 
+print('Random Forest accuracy on testing data %s' %rf_clf_fit.score(X = principal_df_test, y = y_test))
+
+#ignore any warnings 
+import warnings
+warnings.filterwarnings("ignore")
+
+#perform cross valdation on random forecast error 
+from sklearn.model_selection import cross_val_score
+cv_results_rf =cross_val_score(rf_clf, X= principal_df, y = y_train)
+print('CV 5 Fold Accuracy %s' %cv_results_rf.mean())
+
+#temp =pd.DataFrame({'pc':principal_df.columns, 'imp_score':rf_clf_fit.feature_importances_})
+#temp.sort_values(by = "imp_score", ascending = False).reset_index(drop = True)
+
+#Performing LinearDiscriminant analysis 
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+lda_clf = LinearDiscriminantAnalysis(solver = 'lsqr', shrinkage = 'auto')
+lda_clf_fit = lda_clf.fit(X = principal_df, y = y_train)
+
+#checking accuracy of lda on training data
+print('Checking LDA accuracy on training data %s' %lda_clf_fit.score(X = principal_df, y = y_train))
+
+#checking accuracy of lda on testing data 
+print('Checking LDA accuracy on testing data %s' %lda_clf_fit.score(X = principal_df_test, y = y_test))
+
+#ignore warnings 
+import warnings 
+warnings.filterwarnings("ignore")
+
+#perform cross validation on lda 
+from sklearn.model_selection import cross_val_score
+cv_results_lda = cross_val_score(lda_clf, X = principal_df, y = y_train, cv = 5)
+print('CV 5 Fold Accuracy %s' %cv_results_lda.mean())
+
+#Performing QuadraticDiscriminant analysis 
+from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis 
+qda_clf = QuadraticDiscriminantAnalysis()
+qda_clf_fit = qda_clf.fit(X = principal_df, y = y_train)
+
+#checking accuray on training data 
+print('QDA accuracy on training data %s' %qda_clf_fit.score(X = principal_df, y = y_train))
+
+#checking accuracy on testing data 
+print('QDA accuracy on testing data %s' %qda_clf_fit.score(X = principal_df_test, y = y_test))
+
+#ignore warnings 
+import warnings 
+warnings.filterwarnings("ignore")
+
+#perform cross validaiton on QDA 
+#from sklearn.model_selection import cross_val_score
+#cv_results_qda = cross_val_score(qda_clf, X = principal_df, y = y_train, cv = 2)
+#print('CV 5 Fold Accuracy %s' %cv_results_qda.mean())
+
+#Implementing SVM 
+from sklearn.svm import SVC 
+svc_clf = SVC(kernel = 'linear')
+svc_clf_fit = svc_clf.fit(X = principal_df, y = y_train)
+
+#checking accuracy on training data 
+print('SVC kernal = "linear" accuracy on training data %s' %svc_clf_fit.score(X = principal_df, y = y_train))
+
+#checking accuracy on testing data 
+print('SVC kernel = "linear" accuray on testing data %s' %svc_clf_fit.score(X = principal_df_test, y = y_test))
+
+
+#implemeting poly svm 
+import numpy as np
+from sklearn.svm import SVC 
+for poly_degree in np.arange(2, 10, 1):    
+    svc_pl_clf = SVC(kernel = 'poly', degree = poly_degree)
+    svc_pl_clf_fit = svc_pl_clf.fit(X = principal_df, y = y_train)
+
+    #checking accuracy on training data 
+    print('SVC kernel = poly where poly_degree = ' + str(poly_degree) +str(' accuracy on training data ') + str(svc_pl_clf.score(X = principal_df, y = y_train)))
+    
+    #checking accuracy on testing data 
+    print('SVC kernal = poly where poly_degree = '+ str(poly_degree) + str(' accuracy on testing data ') + str(svc_pl_clf.score(X = principal_df_test, y = y_test)))
+    
+#implementing gaussian(rbf) svm 
+from sklearn.svm import SVC 
+svc_rbf_clf = SVC(kernel = 'rbf')
+svc_rbf_clf_fit = svc_rbf_clf.fit(X = principal_df, y = y_train)
+
+#checking accuracy on training data 
+print('SVC kernel = "rbf" accuracy on training data %s' %svc_rbf_clf_fit.score(X = principal_df, y = y_train))
+
+#checking accuracy on testing data 
+print('SVC kernel = "rbf" accuracy on testing data %s' %svc_rbf_clf_fit.score(X = principal_df_test, y = y_test))
+
+#ignore warnings 
+import warnings 
+warnings.filterwarnings("ignore")
+
+#performing cross validation 
+from sklearn.model_selection import cross_val_score 
+cv_results_svm_rbf = cross_val_score(svc_rbf_clf, X = principal_df, y = y_train, cv = 5)
+print("CV 5 Fold results %s" %cv_results_svm_rbf.mean())
+
+#implementing sigmoid svm 
+from sklearn.svm import SVC 
+svc_smd_clf = SVC(kernel = "sigmoid")
+svc_smd_clf_fit = svc_smd_clf.fit(X = principal_df, y = y_train)
+
+#checking accuracy on training data 
+print('SVC kernel = "sigmoid" accuracy on training data %s' %svc_smd_clf_fit.score(X = principal_df, y = y_train))
+
+#checkig accuracy on testing data 
+print('SVC kernel = "sigmoid accuracy on testing data %s' %svc_smd_clf_fit.score(X = principal_df_test, y = y_test))
+
+#ignore warnings 
+import warnings 
+warnings.filterwarnings("ignore")
+
+#performing cross validation 
+from sklearn.model_selection import cross_val_score
+cv_results_svm_smd = cross_val_score(svc_smd_clf, X = principal_df, y = y_train, cv = 5)
+print('CV 5 Fold results %s' %cv_results_svm_smd.mean())
+
+#implementing Xtreme Gradient Boosting model 
+from xgboost import XGBClassifier
+
+xgb_clf  = XGBClassifier()
+
+xgb_clf_fit = xgb_clf.fit(X = principal_df, y = y_train)
+
+#checking accuracy on training data 
+print('XGB accuracy on training data %s' %xgb_clf_fit.score(X = principal_df, y = y_train))
+
+#checking accuracy on testing data 
+print('XGB accuracy on testing data %s' %xgb_clf_fit.score(X = principal_df_test, y = y_test))
+
+#ignore warnings 
+import warnings 
+warnings.filterwarnings("ignore")
+
